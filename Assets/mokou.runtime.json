@@ -1,0 +1,224 @@
+{
+  "skeleton": {
+    "hash": "",
+    "spine": "3.8.75",
+    "x": -345,
+    "y": 0,
+    "width": 487,
+    "height": 779,
+    "images": "images/"
+  },
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "07-back-ponytail",
+      "bone": "root",
+      "attachment": "07-back-ponytail"
+    },
+    {
+      "name": "05-left-side-hair",
+      "bone": "root",
+      "attachment": "05-left-side-hair"
+    },
+    {
+      "name": "14-left-leg-full",
+      "bone": "root",
+      "attachment": "14-left-leg-full"
+    },
+    {
+      "name": "15-right-leg-full",
+      "bone": "root",
+      "attachment": "15-right-leg-full"
+    },
+    {
+      "name": "12-left-hand",
+      "bone": "root",
+      "attachment": "12-left-hand"
+    },
+    {
+      "name": "10-left-arm",
+      "bone": "root",
+      "attachment": "10-left-arm"
+    },
+    {
+      "name": "09-torso-neck",
+      "bone": "root",
+      "attachment": "09-torso-neck"
+    },
+    {
+      "name": "01-head-base",
+      "bone": "root",
+      "attachment": "01-head-base"
+    },
+    {
+      "name": "08-large-bow",
+      "bone": "root",
+      "attachment": "08-large-bow"
+    },
+    {
+      "name": "06-right-side-hair",
+      "bone": "root",
+      "attachment": "06-right-side-hair"
+    },
+    {
+      "name": "04-front-hair",
+      "bone": "root",
+      "attachment": "04-front-hair"
+    },
+    {
+      "name": "02-eyes-open",
+      "bone": "root",
+      "attachment": "02-eyes-open"
+    },
+    {
+      "name": "13-right-hand",
+      "bone": "root",
+      "attachment": "13-right-hand"
+    },
+    {
+      "name": "11-right-arm",
+      "bone": "root",
+      "attachment": "11-right-arm"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "attachments": {
+        "07-back-ponytail": {
+          "07-back-ponytail": {
+            "x": -205.0,
+            "y": 375.5,
+            "width": 280,
+            "height": 485,
+            "path": "images/07-back-ponytail"
+          }
+        },
+        "05-left-side-hair": {
+          "05-left-side-hair": {
+            "x": 74.5,
+            "y": 509.0,
+            "width": 81,
+            "height": 154,
+            "path": "images/05-left-side-hair"
+          }
+        },
+        "14-left-leg-full": {
+          "14-left-leg-full": {
+            "x": 70.5,
+            "y": 148.0,
+            "width": 143,
+            "height": 296,
+            "path": "images/14-left-leg-full"
+          }
+        },
+        "15-right-leg-full": {
+          "15-right-leg-full": {
+            "x": -70.5,
+            "y": 157.5,
+            "width": 155,
+            "height": 305,
+            "path": "images/15-right-leg-full"
+          }
+        },
+        "12-left-hand": {
+          "12-left-hand": {
+            "x": 96.5,
+            "y": 287.5,
+            "width": 57,
+            "height": 77,
+            "path": "images/12-left-hand"
+          }
+        },
+        "10-left-arm": {
+          "10-left-arm": {
+            "x": 64.0,
+            "y": 390.0,
+            "width": 80,
+            "height": 156,
+            "path": "images/10-left-arm"
+          }
+        },
+        "09-torso-neck": {
+          "09-torso-neck": {
+            "x": -3.5,
+            "y": 388.5,
+            "width": 143,
+            "height": 221,
+            "path": "images/09-torso-neck"
+          }
+        },
+        "01-head-base": {
+          "01-head-base": {
+            "x": -14.5,
+            "y": 581.5,
+            "width": 195,
+            "height": 197,
+            "path": "images/01-head-base"
+          }
+        },
+        "08-large-bow": {
+          "08-large-bow": {
+            "x": -64.5,
+            "y": 669.0,
+            "width": 229,
+            "height": 220,
+            "path": "images/08-large-bow"
+          }
+        },
+        "06-right-side-hair": {
+          "06-right-side-hair": {
+            "x": -81.5,
+            "y": 530.0,
+            "width": 51,
+            "height": 102,
+            "path": "images/06-right-side-hair"
+          }
+        },
+        "04-front-hair": {
+          "04-front-hair": {
+            "x": 0.0,
+            "y": 617.0,
+            "width": 238,
+            "height": 166,
+            "path": "images/04-front-hair"
+          }
+        },
+        "02-eyes-open": {
+          "02-eyes-open": {
+            "x": 11.0,
+            "y": 543.0,
+            "width": 146,
+            "height": 36,
+            "path": "images/02-eyes-open"
+          }
+        },
+        "13-right-hand": {
+          "13-right-hand": {
+            "x": -118.0,
+            "y": 277.0,
+            "width": 58,
+            "height": 82,
+            "path": "images/13-right-hand"
+          }
+        },
+        "11-right-arm": {
+          "11-right-arm": {
+            "x": -88.0,
+            "y": 387.5,
+            "width": 82,
+            "height": 169,
+            "path": "images/11-right-arm"
+          }
+        }
+      }
+    }
+  ],
+  "animations": {
+    "animation": {}
+  }
+}

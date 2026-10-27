@@ -1,0 +1,5 @@
+displayName = Mokou Character
+author = mokou
+version = 0.1
+
+modReferences = CharacterRely
