@@ -10,3 +10,4 @@ C:\Users\Wrk07\OneDrive\文档\My Games\Terraria\tModLoader\ModSources\Mokou_Cha
 C:\Users\Wrk07\OneDrive\文档\My Games\Terraria\tModLoader\ModSources\Mokou_Character\obj\Debug\net8.0\refint\Mokou_Character.dll
 C:\Users\Wrk07\OneDrive\文档\My Games\Terraria\tModLoader\ModSources\Mokou_Character\obj\Debug\net8.0\Mokou_Character.pdb
 C:\Users\Wrk07\OneDrive\文档\My Games\Terraria\tModLoader\ModSources\Mokou_Character\obj\Debug\net8.0\ref\Mokou_Character.dll
+C:\Users\Wrk07\OneDrive\文档\My Games\Terraria\tModLoader\ModSources\Mokou_Character\obj\Debug\net8.0\Mokou_Character.sourcelink.json

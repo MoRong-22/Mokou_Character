@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mokou_Character", "Mokou_Character.csproj", "{ABE8CC8E-BB23-4E82-8ED6-7CD9DF48B760}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CharacterRely", "..\CharacterRely\CharacterRely.csproj", "{AFF88B9E-A087-4284-90BA-A4D0D8455A9B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ABE8CC8E-BB23-4E82-8ED6-7CD9DF48B760}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ABE8CC8E-BB23-4E82-8ED6-7CD9DF48B760}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ABE8CC8E-BB23-4E82-8ED6-7CD9DF48B760}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ABE8CC8E-BB23-4E82-8ED6-7CD9DF48B760}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AFF88B9E-A087-4284-90BA-A4D0D8455A9B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AFF88B9E-A087-4284-90BA-A4D0D8455A9B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AFF88B9E-A087-4284-90BA-A4D0D8455A9B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AFF88B9E-A087-4284-90BA-A4D0D8455A9B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

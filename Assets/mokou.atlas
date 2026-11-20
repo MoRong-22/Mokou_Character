@@ -102,3 +102,29 @@ repeat: none
   orig: 155, 305
   offset: 1, 1
   index: -1
+
+images/phoenix-wing-far.png
+size: 385,245
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+phoenix-wing-far
+  rotate: false
+  xy: 0, 0
+  size: 385, 245
+  orig: 385, 245
+  offset: 0, 0
+  index: -1
+
+images/phoenix-wing-near.png
+size: 412,313
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+phoenix-wing-near
+  rotate: false
+  xy: 0, 0
+  size: 412, 313
+  orig: 412, 313
+  offset: 0, 0
+  index: -1

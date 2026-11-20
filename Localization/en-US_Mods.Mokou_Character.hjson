@@ -5,3 +5,30 @@ Keybinds: {
 	SkillSlot4.DisplayName: Skill Slot4
 	SkillSlot5.DisplayName: Skill Slot5
 }
+
+Buffs: {
+	PhoenixFormBuff: {
+		DisplayName: 不死鸟形态
+		Description: 独立回血翻倍，飞行时间无限
+	}
+
+	WeaponImbueShadowFlame: {
+		DisplayName: 暗影焰武器增益
+		Description: 攻击到敌人会给敌人施加暗影焰减益
+	}
+}
+
+Items: {
+	ShadowFlame_Bottle: {
+		DisplayName: 暗影焰武器瓶
+		Tooltip: ""
+	}
+}
+
+Projectiles: {
+	MokouFlameClawProjectile.DisplayName: Mokou Flame Claw Projectile
+	MokouKafuuKaiseyKickProjectile.DisplayName: 凯风快晴飞踢
+	MokouKickExplosionProjectile.DisplayName: 富士火山
+	MokouPhoenixVortexProjectile.DisplayName: 火焰大旋风
+	MokouSacrificeDashProjectile.DisplayName: Mokou Sacrifice Dash Projectile
+}

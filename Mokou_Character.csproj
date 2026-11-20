@@ -5,16 +5,15 @@
 
 	<!-- General -->
 	<PropertyGroup>
-		
+		<!-- 目标框架不依赖 BuildMod 开关，IDE 还原和仅编译 DLL 时也需要。 -->
+		<TargetFramework>net8.0</TargetFramework>
+		<LangVersion>12.0</LangVersion>
 	</PropertyGroup>
 
 	<!-- References -->
 	<ItemGroup>
-		<!-- 引用 lib 中的角色库，供编辑器补全和项目编译使用。 -->
-		<Reference Include="CharacterRely.Library">
-			<HintPath>lib\CharacterRely.Library.dll</HintPath>
-			<Private>false</Private>
-		</Reference>
+		<!-- 开发时直接引用依赖模组源码，运行时由 build.txt 的 modReferences 加载同一份公共类型。 -->
+		<ProjectReference Include="..\CharacterRely\CharacterRely.csproj" Private="false" />
 	</ItemGroup>
 
 </Project>

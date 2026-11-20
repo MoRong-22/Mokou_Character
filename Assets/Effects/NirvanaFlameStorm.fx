@@ -3,12 +3,14 @@
 // uTime 从 0 递增到 uDuration，单位为秒；结束后完全透明，不自动循环。
 // uSize 是火柱在绘制矩形内的宽高倍率；实际像素大小由绘制矩形控制。
 // 默认效果约占矩形中间 80% 宽度。放大时请同时留足绘制矩形边界。
-// uFireColor 为 0~1 RGB，默认橙红色。uSwirlSpeed 控制旋卷速度和方向。
+// uDarkColor 为暗焰色，uLightColor 为亮焰色，均为 0~1 RGB，默认橙红色。
+// uSwirlSpeed 控制旋卷速度和方向。
 // 输出为预乘透明度，使用 SpriteBatch + BlendState.AlphaBlend。
 float uTime = 0.0;
 float uDuration = 5.0;
 float2 uSize = float2(1.0, 1.0);
-float3 uFireColor = float3(1.0, 0.25, 0.035);
+float3 uDarkColor = float3(0.65, 0.06, 0.01);
+float3 uLightColor = float3(1.0, 0.72, 0.20);
 float uIntensity = 1.0;
 float uSwirlSpeed = 1.0;
 
@@ -107,11 +109,11 @@ float4 NirvanaFlameStormPS(float2 texCoord : TEXCOORD0, float4 vertexColor : COL
 
     // 火柱内部也保留流动的明暗，避免中心糊成一块纯色。
     float heat = saturate(fire * (0.22 + detail * 1.15) + ribbons * 0.75);
-    float3 theme = saturate(uFireColor);
-    float3 hotColor = lerp(sqrt(theme), float3(1.0, 1.0, 1.0), 0.10);
-    float3 color = lerp(theme * float3(0.48, 0.28, 0.22), theme, smoothstep(0.04, 0.50, heat));
-    color = lerp(color, hotColor, smoothstep(0.55, 1.0, heat));
-    color = lerp(color, sqrt(theme), saturate(sparks));
+    // 外围使用暗焰色，火心和火星过渡到传入的亮焰色。
+    float3 darkColor = saturate(uDarkColor);
+    float3 lightColor = saturate(uLightColor);
+    float3 color = lerp(darkColor, lightColor, smoothstep(0.04, 1.0, heat));
+    color = lerp(color, lightColor, saturate(sparks));
     float alpha = saturate(fire * 0.92 + ribbons * 0.85 + sparks) * life * vertexColor.a;
     color *= max(uIntensity, 0.0) * (1.0 + burst * 0.18);
     return float4(saturate(color) * vertexColor.rgb * alpha, alpha);
