@@ -1,5 +1,6 @@
 ﻿
 using Microsoft.Xna.Framework;
+using Mokou_Character.Character;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -63,6 +64,8 @@ public class WeaponimbueShadowFlame_Player : ModPlayer
 
     public override void OnHitNPC(NPC target, NPC.HitInfo hit, int damageDone)
     {
+        // 妹红由角色统一传递两种火焰，避免同一次命中重复添加暗影焰。
+        if (Player.GetModPlayer<Mokou>().IsSelected) return;
         if(Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
             target.AddBuff(BuffID.ShadowFlame,120);
     }

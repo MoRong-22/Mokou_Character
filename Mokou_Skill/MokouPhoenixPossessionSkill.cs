@@ -9,13 +9,14 @@ using Terraria.ModLoader;
 namespace Mokou_Character.Skill;
 
 /// <summary>原地吟唱后获得不死鸟形态；主动释放不具备被动重生的无敌和满血恢复。</summary>
-public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSystem.Skill
+public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSystem.Skill, IMokouActionSkill
 {
     public const string SkillId = "phoenix_possession";
     /// <summary>成功释放时立即扣除的生命，必须至少保留 1 点生命。</summary>
     public const int LifeCost = 200;
     public const int ChantTicks = 3 * 60;
     public const int CooldownTicks = 45 * 60;
+    public bool IsPerformingAction => IsActive;
     private SpinePlayer animator;
     private Vector2 chantPosition;
     private int chantDirection;
@@ -23,7 +24,7 @@ public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSys
 
     public MokouPhoenixPossessionSkill() : base(new SkillInfo(
         SkillId, "不死鸟附体",
-        "原地吟唱 3 秒，龙卷持续伤害接触的敌人，并吸附附近可被击退的敌人。完成后获得不死鸟形态，持续 30 秒：独立回血翻倍，飞行时间无限，并展开火焰翅膀。成功释放时立即消耗200点生命，至少保留1点生命；吟唱结束后结算自燃进度与强化回血，冷却45秒。",
+        "原地吟唱 3 秒，龙卷每0.5秒伤害接触的敌人，并吸附附近可被击退的敌人。伤害随世界BOSS进度成长，只受魔法与通用伤害加成（通用只计一次）。完成后获得不死鸟形态，持续 30 秒：独立回血翻倍，飞行时间无限，并展开火焰翅膀。成功释放时立即消耗200点生命，至少保留1点生命；吟唱结束后结算自燃进度与强化回血，冷却45秒。",
         cooldownTicks: CooldownTicks, durationTicks: ChantTicks, maxCount: 1, cost: 0)) { }
 
     protected override bool CanUse()
@@ -31,11 +32,10 @@ public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSys
             && !Player.pulley && !Player.mount.Active && Player.grapCount == 0
             && Player.itemAnimation == 0 && Player.heldProj < 0
             && Owner is Mokou character && character.CanSpendSkillLife(LifeCost) && !character.IsNirvana && !character.IsPhoenixForm
-            && !character.ClawSkill.IsActive
-            && !character.KafuuKaiseyKickSkill.IsActive && !character.SacrificeStrikeSkill.IsActive;
+            && !character.HasBlockingSkillAction(this);
 
     protected override bool OnUse()
-        => ((Mokou)Owner).TryUseSkillWithLifeCost(LifeCost, BeginCast);
+        => ((Mokou)Owner).TryUseSkillWithLifeCost(this, LifeCost, BeginCast);
 
     private bool BeginCast(bool empowered)
     {
@@ -47,9 +47,9 @@ public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSys
         _ = character.VanillaActions;
         ApplyPose(0f);
         // 起手前判定，伤害随弹幕生成时同步；该龙卷后续每次命中都使用同一数值。
-        int damage = Mokou.GetEmpoweredSkillDamage(MokouPhoenixVortexProjectile.BaseDamage,
-            empowered);
-        int index = Projectile.NewProjectile(Player.GetSource_Misc("CharacterSkill:" + Id),
+        var damageSnapshot = MokouSkillBalance.Capture(Player, empowered);
+        int damage = damageSnapshot.Resolve(damageSnapshot.Base.Vortex);
+        int index = Projectile.NewProjectile(Player.GetSource_FromThis("CharacterSkill:" + Id),
             Player.Bottom - new Vector2(0f, 140f), Vector2.Zero,
             ModContent.ProjectileType<MokouPhoenixVortexProjectile>(), damage,
             0f, Player.whoAmI);
@@ -114,6 +114,6 @@ public sealed class MokouPhoenixPossessionSkill : CharacterRely.Content.SkillSys
             animator.SetBoneRotationOffset("back_hand", 0f);
         }
         animator = null;
-        ((Mokou)Owner).CompleteSkillLifeUse();
+        ((Mokou)Owner).CompleteSkillLifeUse(this);
     }
 }

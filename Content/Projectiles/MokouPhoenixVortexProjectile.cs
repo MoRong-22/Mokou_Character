@@ -1,6 +1,7 @@
 using System;
 using Microsoft.Xna.Framework;
 using Mokou_Character.Character;
+using Mokou_Character.SkillVisuals;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -10,8 +11,7 @@ namespace Mokou_Character.Skill;
 /// <summary>不死鸟附体吟唱期间的风柱伤害和吸附。轮廓对应 NirvanaVortex.fx，不重复绘制龙卷。</summary>
 public sealed class MokouPhoenixVortexProjectile : ModProjectile
 {
-    /// <summary>基础伤害与同一敌人的受击间隔；30 tick = 0.5 秒。</summary>
-    public const int BaseDamage = 20;
+    /// <summary>同一敌人的受击间隔；基础伤害由起手时的 MokouSkillBalance 注入。</summary>
     public const int HitInterval = 30;
     public const float PullRange = 240f;
     private const float Height = 280f;
@@ -25,7 +25,7 @@ public sealed class MokouPhoenixVortexProjectile : ModProjectile
         Projectile.width = 400;
         Projectile.height = 320;
         Projectile.friendly = true;
-        Projectile.DamageType = DamageClass.Generic;
+        Projectile.DamageType = DamageClass.Magic;
         Projectile.penetrate = -1;
         Projectile.tileCollide = false;
         Projectile.ignoreWater = true;
@@ -72,33 +72,12 @@ public sealed class MokouPhoenixVortexProjectile : ModProjectile
         return t * t * (3f - 2f * t);
     }
 
-    private static float SpeedIntegral(float p, float a, float b)
-    {
-        float x = MathHelper.Clamp((p - a) / (b - a), 0f, 1f);
-        return (b - a) * (x * x * x - 0.5f * x * x * x * x) + Math.Max(p - b, 0f);
-    }
-
     private float VisibleHeight => Math.Min(1.03f, 0.015f + 1.085f * Smooth(0f, 2f / 3f, Progress) - 0.025f);
 
-    /// <summary>按高度取外层风带的轮廓。使用与着色器相同的腰线、扩张阶段和轻微摆动。</summary>
+    /// <summary>按高度取弯曲的外层焰带包络，伤害范围随轴线扭动，不再停留在直柱上。</summary>
     private void GetCrossSection(float height, out float x, out float radius)
-    {
-        float p = Progress;
-        float scale = 0.56f + 0.22f * Smooth(2f / 3f, 5.15f / 6f, p)
-            + 0.32f * Smooth(5.15f / 6f, 0.95f, p);
-        float burst = MathHelper.Clamp((p - 0.95f) / 0.05f, 0f, 1f);
-        float travel = 1f - (1f - burst) * (1f - burst);
-        float modelHeight = (height - 0.43f) / (1f + travel * 0.1f) + 0.43f;
-        float waist = 0.32f + 0.20f * MathF.Pow(MathHelper.Clamp(MathF.Abs(modelHeight - 0.46f) / 0.54f, 0f, 1f), 1.4f);
-        float root = 0.10f * (1f - Smooth(0f, 0.24f, modelHeight));
-        float spin = MokouPhoenixPossessionSkill.ChantTicks / 60f * (0.22f * p
-            + 0.38f * SpeedIntegral(p, 0.20f, 2f / 3f)
-            + 0.85f * SpeedIntegral(p, 2f / 3f, 5.15f / 6f)
-            + 0.65f * SpeedIntegral(p, 5.15f / 6f, 0.95f));
-        x = MathF.Sin(modelHeight * 7f - spin * 1.5f) * 0.024f * Smooth(0f, 0.8f, modelHeight)
-            * HalfWidth * (1f + travel * 0.65f);
-        radius = (waist + root) * scale * 1.10f * HalfWidth * (1f + travel * 0.65f);
-    }
+        => NirvanaVortexShape.CrossSection(height, Progress, MokouPhoenixPossessionSkill.ChantTicks / 60f,
+            HalfWidth, out x, out radius);
 
     public override bool? Colliding(Rectangle projHitbox, Rectangle targetHitbox)
     {

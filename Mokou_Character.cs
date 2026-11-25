@@ -2,6 +2,7 @@ using System.IO;
 using CharacterRely;
 using CharacterRely.Content.ModCharacter;
 using Mokou_Character.Character;
+using Mokou_Character.Skill;
 using Terraria.ModLoader;
 
 namespace Mokou_Character
@@ -27,7 +28,8 @@ namespace Mokou_Character
 				return;
 			}
 
-			// 后续本模组自己的其他数据包，在此按 messageType 分发。
+			if (messageType is ResurrectionTeleport.RequestPacket or ResurrectionTeleport.ResultPacket)
+				ResurrectionTeleport.Handle(this, messageType, reader, whoAmI);
 		}
 	}
 }

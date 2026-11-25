@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using CharacterRely.Animation;
 using CharacterRely.Content.SkillSystem;
 using Microsoft.Xna.Framework;
@@ -10,22 +10,22 @@ using Terraria.ModLoader;
 namespace Mokou_Character.Skill;
 
 /// <summary>普通左右手交替斜砍，强化双手同时交叉斜砍；每只手三道爪痕。</summary>
-public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
+public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill, IMokouActionSkill
 {
     // 保留注册 ID，已有存档的技能装配不受显示名称修改影响。
     public const string SkillId = "flame_claw";
     /// <summary>成功释放时立即扣除的生命，必须至少保留 1 点生命。</summary>
-    public const int LifeCost = 50;
+    public const int LifeCost = 10;
     private const int SwingTicks = 24;
     private const int StrikeTick = 8;
     private const int StrikeCount = 2;
-    // 普通三次改成两次，整套基础伤害仍为60；强化双手一次结算90，避免同一双爪重复计伤。
-    private const int Damage = 30;
+    // 普通两击，强化双手合并为一击；阶段伤害与装备加成在起手时锁定。
+    private MokouSkillDamageSnapshot damageSnapshot;
     public const float Reach = 80f;
 
     private static readonly SkillInfo skillInfo = new(
-        SkillId, "自伤的火爪", "左、右手交替贴身斜砍，每次留下三道火焰爪痕，攻击身前80像素内的整个范围。人体自燃强化时，改为双手同时交叉斜砍，伤害提高50%。成功释放时立即消耗50点生命，至少保留1点生命；整套结束后结算自燃进度与强化回血。",
-        cooldownTicks: 120, durationTicks: SwingTicks + StrikeTick + MokouFlameClawProjectile.Lifetime, cost: 0);
+        SkillId, "自伤的火爪", "左、右手交替贴身斜砍，每次留下三道火焰爪痕，攻击身前80像素内的整个范围。人体自燃强化时，改为双手同时交叉斜砍，伤害提高50%。伤害随世界BOSS进度成长，只受魔法与通用伤害加成（通用只计一次）。成功释放时立即消耗10点生命，至少保留1点生命，冷却1秒；整套结束后结算自燃进度与强化回血。",
+        cooldownTicks: 60, durationTicks: SwingTicks + StrikeTick + MokouFlameClawProjectile.Lifetime, cost: 0);
 
     private SpinePlayer animator;
     private Vector2 aimTarget;
@@ -33,11 +33,13 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
     private int facing;
     private float aimAngle;
     // 起手时锁定，三道火爪共享同一次强化，不再读取正在变化的自燃进度。
-    private bool empoweredCast;
+    private bool empoweredCast, ownsPose;
+    /// <summary>挥爪动作收势后，爪痕可以继续存在而不占用新动作。</summary>
+    public bool IsPerformingAction => IsActive && ownsPose;
     private readonly System.Collections.Generic.List<(Projectile Projectile, int Identity)> claws = new(2);
     /// <summary>供手部火焰决定当前是哪一只手挥爪；强化时双手同时燃烧。</summary>
-    public bool FrontHandActive => IsActive && (empoweredCast || swingIndex == 0);
-    public bool BackHandActive => IsActive && (empoweredCast || swingIndex == 1);
+    public bool FrontHandActive => IsPerformingAction && (empoweredCast || swingIndex == 0);
+    public bool BackHandActive => IsPerformingAction && (empoweredCast || swingIndex == 1);
 
     public MokouClawSkill() : base(skillInfo) { }
 
@@ -45,15 +47,16 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
         && !Player.dead && !Player.CCed && !Player.pulley && !Player.mount.Active
         && Player.itemAnimation == 0 && Player.heldProj < 0
         && Owner is Mokou character && character.CanSpendSkillLife(LifeCost) && !character.IsNirvana && !character.IsPhoenixChanting
-        && !character.KafuuKaiseyKickSkill.IsActive && !character.SacrificeStrikeSkill.IsActive;
+        && !character.HasBlockingSkillAction(this);
 
     protected override bool OnUse()
-        => ((Mokou)Owner).TryUseSkillWithLifeCost(LifeCost, BeginCast);
+        => ((Mokou)Owner).TryUseSkillWithLifeCost(this, LifeCost, BeginCast);
 
     private bool BeginCast(bool empowered)
     {
         var character = (Mokou)Owner;
         empoweredCast = empowered;
+        damageSnapshot = MokouSkillBalance.Capture(Player, empowered);
         _ = character.VanillaActions;
         animator = character.Animator;
         swingIndex = -1;
@@ -74,6 +77,7 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
         int swings = empoweredCast ? 1 : StrikeCount;
         if (ElapsedTicks > SwingTicks * swings)
         {
+            ReleasePose();
             // 动作已收势，但最后的爪痕仍属于本次技能，消散完才结束结算。
             if (ElapsedTicks >= SwingTicks * (swings - 1) + StrikeTick + MokouFlameClawProjectile.Lifetime) End();
             return;
@@ -101,18 +105,20 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
 
     private void ApplyPose(int index, int phase)
     {
+        ownsPose = true;
         float windup = Ease(phase / 6f);
-        float slash = 1f - MathF.Pow(1f - Math.Clamp((phase - 6) / 5f, 0, 1), 3);
+        // 与爪痕五帧展开使用同一个进度，避免手已挥完、爪痕才开始出现。
+        float slash = Ease((phase - StrikeTick + 2) / 5f);
         float strength = phase < 12 ? windup : 1 - Ease((phase - 12) / 11f);
         float sweep = MathHelper.Lerp(-1.15f, 0.95f, slash);
         float twist = empoweredCast ? 0.12f : (index == 0 ? 1 : -1) * sweep * 0.18f;
         animator.SetBoneRotationOffset("body_1", twist * strength);
         animator.SetBoneRotationOffset("head", (aimAngle * 0.3f - twist * 0.6f) * strength);
-        PoseArm("front_arm", "front_hand", empoweredCast || index == 0, sweep, strength, -1);
-        PoseArm("back_arm", "back_hand", empoweredCast || index == 1, -sweep, strength, 1);
+        PoseArm("front_arm", "front_hand", empoweredCast || index == 0, slash, strength, 0);
+        PoseArm("back_arm", "back_hand", empoweredCast || index == 1, slash, strength, 1);
     }
 
-    private void PoseArm(string arm, string hand, bool attacking, float sweep, float strength, int side)
+    private void PoseArm(string arm, string hand, bool attacking, float slash, float strength, int handIndex)
     {
         animator.SetBoneRotationOffset(arm, 0);
         animator.SetBoneRotationOffset(hand, 0);
@@ -122,13 +128,25 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
             animator.SetBoneRotationOffset(hand, -0.35f * strength);
             return;
         }
-        // 以真实骨骼朝向求偏移，避免把“垂下的手臂”的零度当成朝前。
-        animator.TryGetBoneTransform(arm, out Matrix transform);
+        // 手臂追踪同一条斜挥中心线，左右镜像在 ClawPoint 内统一处理。
+        if (!animator.TryGetBoneTransform(arm, out Matrix transform)) return;
         float current = MathF.Atan2(transform.M12, transform.M11);
-        Vector2 target = new(MathF.Cos(aimAngle + sweep) * facing, MathF.Sin(aimAngle + sweep));
+        Vector2 forward = new(MathF.Cos(aimAngle) * facing, MathF.Sin(aimAngle));
+        Vector2 point = MokouSkillMotion.ClawPoint(Player.MountedCenter, forward, facing, Reach,
+            handIndex == 0 ? 1 : -1, 1, handIndex == 0 ? slash : 1f - slash);
+        Vector2 shoulder = Player.Bottom + new Vector2(transform.M41, transform.M42) * Owner.CharacterScale;
+        Vector2 target = (point - shoulder).SafeNormalize(forward);
         float delta = MathHelper.WrapAngle(target.ToRotation() - current) * facing;
         animator.SetBoneRotationOffset(arm, delta * strength);
-        animator.SetBoneRotationOffset(hand, (side * 0.3f - sweep * 0.25f) * strength);
+
+        // 小臂也朝向爪痕，火焰沿 front_hand / back_hand 的实际方向延伸。
+        if (animator.TryGetBoneTransform(hand, out Matrix handTransform))
+        {
+            Vector2 wrist = Player.Bottom + new Vector2(handTransform.M41, handTransform.M42) * Owner.CharacterScale;
+            float handAngle = MathF.Atan2(handTransform.M12, handTransform.M11);
+            float desired = (point - wrist).SafeNormalize(target).ToRotation();
+            animator.SetBoneRotationOffset(hand, MathHelper.WrapAngle(desired - handAngle) * facing * strength);
+        }
     }
 
     private static float Ease(float value)
@@ -138,11 +156,26 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
     {
         Vector2 direction = new(MathF.Cos(aimAngle) * facing, MathF.Sin(aimAngle));
         // 不沿瞄准方向远推中心；贴身范围与三道爪痕使用同一个80像素半径。
-        int slot = Projectile.NewProjectile(Player.GetSource_Misc("CharacterSkill:" + Id), Player.MountedCenter, direction,
+        int slot = Projectile.NewProjectile(Player.GetSource_FromThis("CharacterSkill:" + Id), Player.MountedCenter, direction,
             ModContent.ProjectileType<MokouFlameClawProjectile>(),
-            Mokou.GetEmpoweredSkillDamage(Damage * (empoweredCast ? StrikeCount : 1), empoweredCast),
+            damageSnapshot.Resolve(damageSnapshot.Base.Claw, empoweredCast ? StrikeCount : 1),
             2f, Player.whoAmI, empoweredCast ? 2 : index, facing);
         if ((uint)slot < Main.maxProjectiles) claws.Add((Main.projectile[slot], Main.projectile[slot].identity));
+    }
+
+    private void ReleasePose()
+    {
+        if (!ownsPose) return;
+        ownsPose = false;
+        if (animator != null && !animator.IsDisposed)
+        {
+            animator.SetBoneRotationOffset("front_arm", 0f);
+            animator.SetBoneRotationOffset("front_hand", 0f);
+            animator.SetBoneRotationOffset("back_arm", 0f);
+            animator.SetBoneRotationOffset("back_hand", 0f);
+            animator.SetBoneRotationOffset("body_1", 0f);
+            animator.SetBoneRotationOffset("head", 0f);
+        }
     }
 
     protected override void OnEnd(bool interrupted)
@@ -153,16 +186,8 @@ public sealed class MokouClawSkill : CharacterRely.Content.SkillSystem.Skill
                     projectile.Kill();
         claws.Clear();
         empoweredCast = false;
-        if (animator != null && !animator.IsDisposed)
-        {
-            animator.SetBoneRotationOffset("front_arm", 0f);
-            animator.SetBoneRotationOffset("front_hand", 0f);
-            animator.SetBoneRotationOffset("back_arm", 0f);
-            animator.SetBoneRotationOffset("back_hand", 0f);
-            animator.SetBoneRotationOffset("body_1", 0f);
-            animator.SetBoneRotationOffset("head", 0f);
-        }
+        ReleasePose();
         animator = null;
-        ((Mokou)Owner).CompleteSkillLifeUse();
+        ((Mokou)Owner).CompleteSkillLifeUse(this);
     }
 }

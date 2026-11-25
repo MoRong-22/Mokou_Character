@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Mokou_Character")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0e37b11e8af62c18e3fa37e5690f68d8c1439670")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b6882af7d9aade459d044d1d945f436858991931")]
 [assembly: System.Reflection.AssemblyProductAttribute("Mokou_Character")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Mokou_Character")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -1,21 +1,28 @@
 using System;
+using System.IO;
 using Microsoft.Xna.Framework;
 using Mokou_Character.Character;
 using Mokou_Character.Content.Dusts;
 using Mokou_Character.SkillVisuals;
 using Terraria;
+using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 
 namespace Mokou_Character.Skill;
 
-/// <summary>冲刺身体碰撞和固定世界坐标拖尾；一次冲刺对同一目标只命中一次。</summary>
+/// <summary>冲刺身体碰撞和连续焰尾；路径固定在世界坐标中，每段仅命中一次。</summary>
 public sealed class MokouSacrificeDashProjectile : ModProjectile
 {
     private const int TrailTicks = 12, Capacity = 32;
     private readonly Vector2[] points = new Vector2[Capacity];
-    private readonly int[] times = new int[Capacity];
-    private int count, age, stoppedTicks;
+    private readonly Vector2[] normals = new Vector2[Capacity];
+    private readonly float[] times = new float[Capacity];
+    private readonly float[] distances = new float[Capacity];
+    private readonly SacrificeFlameDrawing drawing = new();
+    private FlameRibbonMesh mesh;
+    private Color dark, light;
+    private int start, count, age, stoppedTicks;
     private Vector2 previousCenter;
     public override string Texture => "Terraria/Images/MagicPixel";
 
@@ -26,7 +33,7 @@ public sealed class MokouSacrificeDashProjectile : ModProjectile
     {
         Projectile.width = 32; Projectile.height = 48;
         Projectile.friendly = true;
-        Projectile.DamageType = DamageClass.Generic;
+        Projectile.DamageType = DamageClass.Magic;
         Projectile.penetrate = -1;
         Projectile.tileCollide = false;
         Projectile.ignoreWater = true;
@@ -35,6 +42,18 @@ public sealed class MokouSacrificeDashProjectile : ModProjectile
         Projectile.localNPCHitCooldown = -1;
     }
 
+    public override void OnSpawn(IEntitySource source)
+    {
+        previousCenter = Projectile.Center;
+        MokouSkillFlameDust.GetColors(Projectile.owner, out dark, out light);
+        Record(Projectile.Center);
+    }
+    public override void SendExtraAI(BinaryWriter writer) { writer.Write(dark.PackedValue); writer.Write(light.PackedValue); }
+    public override void ReceiveExtraAI(BinaryReader reader)
+    {
+        dark = new Color { PackedValue = reader.ReadUInt32() };
+        light = new Color { PackedValue = reader.ReadUInt32() };
+    }
     public override bool ShouldUpdatePosition() => false;
     public override bool? CanDamage() => Projectile.ai[0] == 0 || stoppedTicks <= 1 ? null : false;
 
@@ -56,23 +75,11 @@ public sealed class MokouSacrificeDashProjectile : ModProjectile
         Player player = Main.player[Projectile.owner];
         if (!player.active || player.dead) { Finish(Projectile.Center); return; }
         Record(player.Center);
-        // 所有端都有同样的存活上限；只有拥有者读取本地技能阶段。
+        // 只有拥有者读取本地技能阶段；其他客户端使用同步状态和寿命上限。
         if (age > MokouSacrificeStrikeSkill.MaxDashTicks
             || Projectile.owner == Main.myPlayer && !player.GetModPlayer<Mokou>().SacrificeStrikeSkill.IsTravelling)
         { Finish(player.Center); return; }
-        if (Main.dedServ) return;
-        MokouSkillFlameDust.GetColors(Projectile.owner, out Color dark, out Color light);
-        Vector2 forward = Projectile.velocity.SafeNormalize(Vector2.UnitX);
-        Lighting.AddLight(Projectile.Center, light.ToVector3() * 0.9f);
-        if (age == 1)
-        {
-            for (int i = 0; i < 14; i++)
-                MokouSkillFlameDust.Spawn(Projectile.Center, -forward.RotatedBy(Main.rand.NextFloat(-0.7f, 0.7f))
-                    * Main.rand.NextFloat(2, 7), dark, light, Main.rand.NextFloat(0.8f, 1.4f));
-        }
-        for (int i = 0; i < 2; i++)
-            MokouSkillFlameDust.Spawn(Vector2.Lerp(previousCenter, Projectile.Center, Main.rand.NextFloat()),
-                -forward * 1.5f + Main.rand.NextVector2Circular(0.8f, 0.8f), dark, light, 0.9f);
+        if (!Main.dedServ) Lighting.AddLight(Projectile.Center, light.ToVector3() * 0.7f);
     }
 
     private void Record(Vector2 center)
@@ -80,14 +87,23 @@ public sealed class MokouSacrificeDashProjectile : ModProjectile
         previousCenter = Projectile.Center;
         Projectile.Center = center;
         if (Vector2.DistanceSquared(previousCenter, center) > 96 * 96)
-        { previousCenter = center; count = 0; }
-        if (count == Capacity)
+        { previousCenter = center; start = count = 0; }
+        float distance = 0;
+        if (count > 0)
         {
-            Array.Copy(points, 1, points, 0, Capacity - 1);
-            Array.Copy(times, 1, times, 0, Capacity - 1);
-            count--;
+            int last = (start + count - 1) % Capacity;
+            float step = Vector2.Distance(points[last], center);
+            if (step < 0.01f) return;
+            distance = distances[last] + step;
         }
-        points[count] = center; times[count++] = age;
+        Vector2 direction = Projectile.velocity.SafeNormalize(Vector2.UnitX);
+        int index = (start + count) % Capacity;
+        points[index] = center;
+        normals[index] = new Vector2(-direction.Y, direction.X);
+        times[index] = age;
+        distances[index] = distance;
+        if (count < Capacity) count++;
+        else start = (start + 1) % Capacity;
     }
 
     public override bool? Colliding(Rectangle projHitbox, Rectangle targetHitbox)
@@ -100,31 +116,9 @@ public sealed class MokouSacrificeDashProjectile : ModProjectile
 
     public override bool PreDraw(ref Color lightColor)
     {
-        MokouSkillFlameDust.GetColors(Projectile.owner, out Color dark, out Color light);
-        Vector2 direction = Projectile.velocity.SafeNormalize(Vector2.UnitX);
-        Vector2 side = new(-direction.Y, direction.X);
-        for (int i = 1; i < count; i++)
-        {
-            float fade = Math.Clamp(1 - (age - times[i]) / (float)TrailTicks, 0, 1);
-            float width = 20 * fade;
-            SkillFlameDrawing.Stroke(points[i - 1], points[i], width, dark, light, fade * 0.65f);
-            // 两侧破风细线和中间火焰主体，尾部留在经过的位置并迅速收细。
-            for (int sign = -1; sign <= 1; sign += 2)
-            {
-                Vector2 offset = side * sign * (11 + 4 * MathF.Sin(i * 0.65f));
-                SkillFlameDrawing.Stroke(points[i - 1] + offset, points[i] + offset,
-                    3 * fade, dark, light, fade * 0.8f);
-            }
-        }
-        if (Projectile.ai[0] == 0)
-        {
-            // 身前短弧标出突进方向，不遮住整个角色。
-            for (int i = 0; i < 12; i++)
-            {
-                Vector2 Point(float t) => Projectile.Center + direction * (30 - 14 * t * t) + side * t * 23;
-                SkillFlameDrawing.Stroke(Point(-1 + i / 6f), Point(-1 + (i + 1) / 6f), 5, dark, light, 0.8f);
-            }
-        }
+        mesh ??= new FlameRibbonMesh(Capacity);
+        int vertices = mesh.Build(points, normals, times, distances, start, count, age, TrailTicks, 16f, Main.screenPosition);
+        drawing.Ribbon(mesh.Vertices, vertices, age / 60f, dark, light);
         return false;
     }
 }

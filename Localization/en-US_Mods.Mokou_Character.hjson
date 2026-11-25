@@ -31,4 +31,8 @@ Projectiles: {
 	MokouKickExplosionProjectile.DisplayName: 富士火山
 	MokouPhoenixVortexProjectile.DisplayName: 火焰大旋风
 	MokouSacrificeDashProjectile.DisplayName: Mokou Sacrifice Dash Projectile
+	MokouPillarMissileProjectile.DisplayName: Mokou Pillar Missile Projectile
+	MokouSacrificeChargeProjectile.DisplayName: Mokou Sacrifice Charge Projectile
+	MokouSacrificeFlameProjectile.DisplayName: Mokou Sacrifice Flame Projectile
+	MokouResurrectionFlameProjectile.DisplayName: Mokou Resurrection Flame Projectile
 }

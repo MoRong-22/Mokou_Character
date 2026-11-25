@@ -44,12 +44,27 @@ float WindNoise(float2 p, float2 period)
                 lerp(VortexHash(float2(a.x, b.y)), VortexHash(b), f.x), f.y);
 }
 
-// 同一条母线连接根部、腰部与顶部。下端向外铺开后向上收拢，不再拼接独立风丝。
-float WindRadius(float height)
+// 脚底锚定，腰部和顶部相位错开；弯曲沿高度传播，不把整根龙卷刚性摆动。
+// 同名公式在 NirvanaVortexShape.cs 中用于技能碰撞轮廓。
+float WindCenter(float height, float spin)
 {
-    float waist = 0.32 + 0.20 * pow(saturate(abs(height - 0.46) / 0.54), 1.4);
-    float root = 0.10 * (1.0 - smoothstep(0.0, 0.24, height));
-    return waist + root;
+    float h = saturate(height);
+    float phase = spin * 2.4;
+    float anchor = smoothstep(0.02, 0.24, h);
+    return anchor * (0.16 * h * sin(phase * 0.40 + 0.8)
+        + (0.055 + h * 0.15) * sin(h * 8.2 - phase)
+        + 0.07 * h * sin(h * 17.0 + phase * 0.65));
+}
+
+float WindRadius(float height, float spin)
+{
+    float h = saturate(height);
+    float waist = 0.32 + 0.20 * pow(saturate(abs(h - 0.46) / 0.54), 1.4);
+    float root = 0.10 * (1.0 - smoothstep(0.0, 0.24, h));
+    // 各高度交替鼓出和收拢，使焰带外轮廓有宽窄变化。
+    float fold = 1.0 + 0.24 * sin(h * 15.5 - spin * 3.48)
+        + 0.10 * sin(h * 29.0 + spin * 2.16);
+    return (waist + root) * lerp(1.0, fold, smoothstep(0.0, 0.18, h));
 }
 
 // 统一沿程坐标：根部弯折段分配更多纹理长度，避免纹理在宽底部被横向拉长。
@@ -67,9 +82,8 @@ float4 ProjectRibbon(float2 uv, float radiusScale, float sheet, float spin)
     // 求出轻微俯视下的实际高度，根部也遵循这套映射。
     [unroll]
     for (int i = 0; i < 3; i++) {
-        float sway = sin(height * 7.0 - spin * 1.5) * 0.024 * smoothstep(0.0, 0.8, height);
-        float radius = WindRadius(height) * radiusScale * sheet;
-        localX = (uv.x - sway) / max(radius, 0.001);
+        float radius = WindRadius(height, spin) * radiusScale * sheet;
+        localX = uv.x / max(radius, 0.001);
         float depth = side * sqrt(saturate(1.0 - localX * localX));
         height = uv.y + depth * radius * 0.13;
     }
@@ -83,10 +97,11 @@ float4 ProjectRibbon(float2 uv, float radiusScale, float sheet, float spin)
 // 每转一圈，圆周坐标变化为整数周期，接缝两侧的纹理和速度一致。
 float4 RibbonTexture(float turn, float height, float spin)
 {
-    float path = WindPath(height);
+    // 高度节距交替变化，外甩的长焰不再像等间距的螺纹。
+    float path = WindPath(height) + sin(height * 9.0 - spin * 1.2) * 0.055;
     float movingTurn = turn - spin * 0.38;
     float movingPath = path - spin * 0.28;
-    float spiral = movingPath * 2.2 + movingTurn;
+    float spiral = movingPath * 1.72 + movingTurn;
     float warp = WindNoise(float2(movingTurn * 3.0, spiral * 3.0), float2(3.0, 3.0));
     float across = spiral * 2.0 + (warp - 0.5) * 0.45;
     float grain = WindNoise(float2(movingTurn * 8.0, across * 23.0), float2(8.0, 46.0));
@@ -96,7 +111,7 @@ float4 RibbonTexture(float turn, float height, float spin)
     // 圆周变化一圈时 floor(across) 增加 2，半周期错位仍然无缝。
     float along = frac(movingTurn * 3.0 + floor(across) * 0.5);
     float brush = smoothstep(0.025, 0.18, along) * (1.0 - smoothstep(0.55, 0.98, along));
-    float width = 0.24 + brush * 0.24 + breakup * 0.12;
+    float width = 0.20 + brush * 0.33 + breakup * 0.16;
     float band = smoothstep(0.035, 0.14, bandPosition)
                * (1.0 - smoothstep(width, width + 0.13, bandPosition));
     // 宽风带留出断口；边缘侵蚀沿风向拉伸，不用细碎噪声铺满主体。
@@ -114,39 +129,44 @@ float4 WindRibbon(float2 uv, float radiusScale, float spin, float burst, float s
 {
     float4 surface = ProjectRibbon(uv, radiusScale, sheet, spin);
     if (surface.w == 0.0) return float4(0.0, 0.0, 0.0, 0.0);
-    float4 tex = RibbonTexture(surface.x, surface.y, spin);
-    float edge = 1.0 - smoothstep(0.56 + tex.x * 0.32, 0.82 + tex.x * 0.17, abs(surface.z));
+    // 投影位置保留连续曲面，纹理随局部高度倾斜；前后层沿同一焰带连接。
+    float tilt = sin(surface.y * 5.0 - spin * 1.1) * 0.13;
+    float4 tex = RibbonTexture(surface.x, surface.y + uv.x * tilt, spin);
+    float edge = 1.0 - smoothstep(0.56 + tex.x * 0.22, 0.83 + tex.x * 0.12, abs(surface.z));
     float root = smoothstep(0.0, 0.045, surface.y);
     float tip = 0.88 + tex.w * 0.18;
     float ends = root * (1.0 - smoothstep(tip - 0.12, tip, surface.y));
     float fragments = (1.0 - smoothstep(tex.w - 0.16, tex.w + 0.16, burst * 1.25 - 0.16))
                     * (1.0 - smoothstep(0.15, 1.0, burst));
     float outer = sheet > 1.0 ? 1.0 : 0.0;
-    float baseAlpha = tex.x * lerp(0.95, 0.90, outer) * (0.55 + tex.w * 0.45);
-    float darkAlpha = tex.z * lerp(0.30, 0.80, outer);
-    float brightAlpha = (tex.y + tex.x * smoothstep(0.60, 0.90, tex.w) * 0.22) * lerp(0.45, 0.85, outer);
+    float baseAlpha = saturate(tex.x * 1.35) * (0.72 + tex.w * 0.28);
+    float darkAlpha = tex.z * lerp(0.22, 0.48, outer);
+    float brightAlpha = saturate(tex.y * 1.65 + tex.x * (0.40 + smoothstep(0.25, 0.73, tex.w) * 0.70));
     float3 dark = saturate(uDarkColor);
     float3 light = saturate(uLightColor);
-    float3 baseColor = lerp(dark, light, lerp(0.72, 0.45, outer) + tex.w * 0.24);
+    float3 baseColor = lerp(dark, light, saturate(0.64 + tex.w * 0.36));
+    float3 hot = lerp(light, float3(1.0, 1.0, 1.0), 0.80);
     float4 color = float4(baseColor * baseAlpha, baseAlpha);
     color = float4(dark * 0.36 * darkAlpha, darkAlpha) + color * (1.0 - darkAlpha);
-    color = float4(light * brightAlpha, brightAlpha) + color * (1.0 - brightAlpha);
+    color = float4(hot * brightAlpha, brightAlpha) + color * (1.0 - brightAlpha);
     color.rgb *= uLayer > 0.0 ? 1.0 : 0.65;
     color.rgb = saturate(color.rgb / max(color.a, 0.001) * max(uIntensity, 0.0)) * color.a;
-    return color * edge * ends * fragments;
+    // 轮廓接近切线处压低细纹，避免极端透视把火焰拉成闪烁的金属丝。
+    float silhouette = 1.0 - smoothstep(0.85, 0.97, abs(surface.z));
+    return color * edge * ends * fragments * silhouette;
 }
 
 // 小范围暖光承托基础风带，暗带从前方掠过时会遮住这层光。
 float4 RibbonCore(float2 uv, float radiusScale, float spin, float burst)
 {
-    float radius = WindRadius(uv.y) * radiusScale * 0.65;
+    float radius = WindRadius(uv.y, spin) * radiusScale * 0.65;
     float x = uv.x / max(radius, 0.001);
     if (abs(x) >= 1.6) return float4(0.0, 0.0, 0.0, 0.0);
     float4 tex = RibbonTexture(0.0, uv.y, spin);
     float alpha = exp2(-x * x * 2.0) * (0.45 + tex.x * 0.35)
         * smoothstep(-0.01, 0.05, uv.y) * (1.0 - smoothstep(0.70, 1.0, uv.y))
         * (1.0 - smoothstep(0.0, 0.60, burst));
-    float3 color = lerp(saturate(uDarkColor), saturate(uLightColor), 0.90);
+    float3 color = lerp(saturate(uLightColor), float3(1.0, 1.0, 1.0), 0.26 + tex.x * 0.35);
     color *= uLayer > 0.0 ? 1.0 : 0.65;
     return float4(saturate(color * max(uIntensity, 0.0)) * alpha, alpha);
 }
@@ -170,8 +190,10 @@ float4 VortexBody(float2 uv, float spin, float formation, float radiusScale, flo
     if (mask <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
     float travel = 1.0 - (1.0 - burst) * (1.0 - burst);
     float2 model = float2(uv.x / (1.0 + travel * 0.65), (uv.y - 0.43) / (1.0 + travel * 0.10) + 0.43);
-    float4 small = WindRibbon(model, radiusScale, spin, burst, 0.78);
-    float4 large = WindRibbon(model, radiusScale, spin, burst, 1.10);
+    // 统一移到弯曲轴线的局部空间，内光、两层焰带、遮住身体的风眼一同弯曲。
+    model.x -= WindCenter(model.y, spin);
+    float4 small = WindRibbon(model, radiusScale, spin, burst, 0.84);
+    float4 large = WindRibbon(model, radiusScale, spin, burst, 1.32);
     float4 core = RibbonCore(model, radiusScale, spin, burst);
     float4 result;
     if (uLayer > 0.0) {
@@ -182,7 +204,7 @@ float4 VortexBody(float2 uv, float spin, float formation, float radiusScale, flo
         result = core + result * (1.0 - core.a);
     }
     // 下部风眼仍需遮住角色，覆盖范围随同一母线缩放，不影响外围风带间隙。
-    float cover = (1.0 - smoothstep(0.45, 1.0, abs(uv.x) / ((0.18 + max(uv.y, 0.0) * 0.40) * radiusScale)))
+    float cover = (1.0 - smoothstep(0.45, 1.0, abs(model.x) / ((0.18 + max(uv.y, 0.0) * 0.40) * radiusScale)))
         * (1.0 - smoothstep(0.24, 0.44, uv.y)) * smoothstep(-0.015, 0.0, uv.y)
         * (1.0 - smoothstep(0.0, 0.60, burst));
     if (uLayer > 0.0) {
@@ -192,7 +214,9 @@ float4 VortexBody(float2 uv, float spin, float formation, float radiusScale, flo
         float4 coverLayer = float4(saturate(coverColor * max(uIntensity, 0.0)) * cover, cover);
         result += coverLayer * (1.0 - result.a);
     }
-    return result * mask;
+    // 扩张末期仅把超出画布的稀薄外焰平滑收掉，避免边缘出现硬截线。
+    float canvasFade = 1.0 - smoothstep(1.47, 1.63, abs(uv.x));
+    return result * mask * canvasFade;
 }
 
 

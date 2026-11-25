@@ -46,6 +46,8 @@ public partial class Mokou
         }
         else if (IsPhoenixChanting)
             PhoenixPossessionSkill.HoldPosition();
+        else if (IsResurrecting)
+            ResurrectionSkill.HoldPosition();
         else if (IsSelected)
             SacrificeStrikeSkill.ApplyDashMovement();
     }

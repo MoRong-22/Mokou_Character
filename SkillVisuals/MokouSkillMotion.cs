@@ -47,16 +47,27 @@ internal static class MokouSkillMotion
         return lo <= hi;
     }
 
-    /// <summary>爪痕在身前形成倾斜弧，三条平行排列；左右朝向由同一组局部坐标镜像。</summary>
+    // 爪痕形状和动作共用这组参数。角度设为 0 就是横挥，正负角度对应两只手。
+    internal const float ClawTilt = MathHelper.Pi / 6f;
+    internal static readonly Vector2 ClawCanvas = new(1.4f, 1.05f);
+    internal static Vector2 ClawAxis(Vector2 forward, int facing, int slashSign)
+    {
+        Vector2 side = new(-forward.Y * facing, forward.X * facing);
+        float angle = ClawTilt * slashSign;
+        return forward * MathF.Cos(angle) + side * MathF.Sin(angle);
+    }
+
+    /// <summary>与 Claw shader 的中心线一致：身前斜挥、弧形展开，三条爪痕渐渐分开。</summary>
     internal static Vector2 ClawPoint(Vector2 origin, Vector2 forward, int facing, float radius,
         int slashSign, int lane, float progress)
     {
-        float u = progress * 2 - 1;
-        float x = radius * (0.40f + 0.24f * (1 - u * u) + slashSign * u * 0.25f)
-            + (lane - 1) * radius * 0.08f;
-        float y = u * radius * 0.68f;
-        Vector2 side = new Vector2(-forward.Y, forward.X) * facing;
-        return origin + forward * x + side * y;
+        float u = progress * 2f - 1f;
+        Vector2 axis = ClawAxis(forward, facing, slashSign);
+        Vector2 normal = new(-axis.Y * facing, axis.X * facing);
+        float along = u * 0.445f * ClawCanvas.X * radius;
+        float arc = (0.10f + lane * 0.018f) * (1f - u * u);
+        float across = ((lane - 1) * (0.205f + 0.025f * progress) + arc) * ClawCanvas.Y * radius;
+        return origin + forward * (radius * 0.50f) + axis * along + normal * across;
     }
 
     internal static float DashSpeedAt(int tick, int travelTicks, float peakSpeed)

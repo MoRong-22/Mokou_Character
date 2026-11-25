@@ -8,7 +8,7 @@ using Terraria.ModLoader;
 
 namespace Mokou_Character.Rendering;
 
-/// <summary>重生/吟唱周围的热浪：一个合成 pass 读写原版两张 RT，绘制后交换。</summary>
+/// <summary>重生/吟唱周围的热浪：复用原版两张场景 RT，读写分离并交换。</summary>
 public sealed class NirvanaHeatWaveSystem : ModSystem
 {
     // 固定容量，每帧从头填写，不积累请求，也不持有玩家实例。
@@ -69,25 +69,28 @@ public sealed class NirvanaHeatWaveSystem : ModSystem
             for (int i = 0; i < playerCount; i++)
             {
                 Player player = Main.player[playerIndices[i]];
-                if (player == null || !player.TryGetModPlayer<Mokou>(out var mokou) ||
-                    !mokou.TryGetNirvanaHeatWave(out Vector2 center, out Vector2 halfSize, out float elapsed))
+                if (player == null || !player.active || player.dead || !player.TryGetModPlayer<Mokou>(out var mokou))
                     continue;
 
-                heatWaveEffect ??= ModContent.Request<Effect>(
-                    "Mokou_Character/Assets/Effects/NirvanaHeatWave", AssetRequestMode.ImmediateLoad);
-                Effect effect = heatWaveEffect.Value;
-                Vector2 size = new Vector2(screenTarget1.Width, screenTarget1.Height);
-                effect.Parameters["uTime"].SetValue(elapsed);
-                effect.Parameters["uDuration"].SetValue(mokou.PhoenixEffectDuration);
-                effect.Parameters["uViewportSize"].SetValue(size);
-                effect.Parameters["uSourceSize"].SetValue(size);
-                effect.Parameters["uCenterPixels"].SetValue(center);
-                effect.Parameters["uHalfSizePixels"].SetValue(halfSize);
-                effect.Parameters["uStrengthPixels"].SetValue(4f);
-                effect.Parameters["uDarkColor"].SetValue(mokou.fire_darkColor.ToVector3());
-                effect.Parameters["uLightColor"].SetValue(mokou.fire_lightColor.ToVector3());
-                // 暂停全屏消融，只保留龙卷周围的热浪折射。
-                effect.Parameters["uBurnStrength"].SetValue(0f);
+                Vector2 size = new(screenTarget1.Width, screenTarget1.Height);
+                Effect effect;
+                if (mokou.TryGetNirvanaHeatWave(out Vector2 center, out Vector2 halfSize, out float elapsed))
+                {
+                    heatWaveEffect ??= ModContent.Request<Effect>(
+                        "Mokou_Character/Assets/Effects/NirvanaHeatWave", AssetRequestMode.ImmediateLoad);
+                    effect = heatWaveEffect.Value;
+                    effect.Parameters["uTime"].SetValue(elapsed);
+                    effect.Parameters["uDuration"].SetValue(mokou.PhoenixEffectDuration);
+                    effect.Parameters["uViewportSize"].SetValue(size);
+                    effect.Parameters["uSourceSize"].SetValue(size);
+                    effect.Parameters["uCenterPixels"].SetValue(center);
+                    effect.Parameters["uHalfSizePixels"].SetValue(halfSize);
+                    effect.Parameters["uStrengthPixels"].SetValue(4f);
+                    effect.Parameters["uDarkColor"].SetValue(mokou.fire_darkColor.ToVector3());
+                    effect.Parameters["uLightColor"].SetValue(mokou.fire_lightColor.ToVector3());
+                    effect.Parameters["uBurnStrength"].SetValue(0f);
+                }
+                else continue;
 
                 GraphicsDevice device = screenTarget1.GraphicsDevice;
                 SpriteBatch batch = Main.spriteBatch;

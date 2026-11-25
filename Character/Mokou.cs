@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using CharacterRely.Animation;
 using CharacterRely.Content.ModCharacter;
 using Microsoft.Xna.Framework;
@@ -24,7 +24,13 @@ public partial class Mokou : CharacterLib
         /// <summary>站立。</summary>
         Idle,
         /// <summary>移动。</summary>
-        Move
+        Move,
+        /// <summary>离地上升，收腿。</summary>
+        Rise,
+        /// <summary>下落，伸腿准备着地。</summary>
+        Fall,
+        /// <summary>翅膀或火箭靴提供动力的飞行。</summary>
+        Fly
     }
 
     /// <summary>角色选择界面使用站立动画。</summary>
@@ -32,14 +38,15 @@ public partial class Mokou : CharacterLib
 
     public override bool PassiveSkillsEnabled => true;
 
-    /// <summary>四个主动技能依次填入新建装配表，已有存档仍可自行更换技能。</summary>
+    /// <summary>注册全部可选技能；四个装配槽保留现有顺序，新传送技能可自行换入。</summary>
     protected override CharacterRely.Content.SkillSystem.Skill[] CreateSkills()
         => new CharacterRely.Content.SkillSystem.Skill[]
         {
             new MokouClawSkill(),
             new MokouKafuuKaiseyKickSkill(),
             new MokouPhoenixPossessionSkill(),
-            new MokouSacrificeStrikeSkill()
+            new MokouSacrificeStrikeSkill(),
+            new MokouResurrectionSkill()
         };
 
     /// <summary>本玩家的交替斜砍与强化双爪技能。</summary>
@@ -59,9 +66,9 @@ public partial class Mokou : CharacterLib
     public MokouSacrificeStrikeSkill SacrificeStrikeSkill
         => (MokouSacrificeStrikeSkill)GetSkill(MokouSacrificeStrikeSkill.SkillId);
 
-    private bool IsHandSkillActive => ClawSkill.IsActive;
+    private bool IsHandSkillActive => ClawSkill.IsPerformingAction;
     private bool IsSkillPoseActive => IsHandSkillActive || KafuuKaiseyKickSkill.IsPerformingAction
-        || IsPhoenixChanting || SacrificeStrikeSkill.IsDashing;
+        || IsPhoenixChanting || SacrificeStrikeSkill.IsDashing || IsResurrecting;
     
     protected override CharacterRely.Content.SkillSystem.PassiveSkill[]
         CreatePassiveSkills()
@@ -83,33 +90,40 @@ public partial class Mokou : CharacterLib
         {
             machine.RegisterState(MovementState.Idle, "idle", fadeInSeconds: 0.1f);
             machine.RegisterState(MovementState.Move, "move", fadeInSeconds: 0.1f);
+            // 空中使用稳定底层，具体身体/腿/翅膀由程序动作层控制。
+            machine.RegisterState(MovementState.Rise, "idle", fadeInSeconds: 0.12f);
+            machine.RegisterState(MovementState.Fall, "idle", fadeInSeconds: 0.12f);
+            machine.RegisterState(MovementState.Fly, "idle", fadeInSeconds: 0.15f);
         });
 
     /// <summary>绑定手臂</summary>
     public VanillaItemActionAdapter VanillaActions
-        => GetVanillaItemActions(actions =>
+    {
+        get
         {
-            actions.BindFrontArm("front_arm", "front_hand");
-            actions.BindBackArm("back_arm", "back_hand");
-            // 主动技能期间由技能代码控制骨骼姿势，避免原版手臂姿势覆盖。
-            actions.PoseFilter = _ => !IsSkillPoseActive;
-        });
+            EnsureLocomotion();
+            return GetVanillaItemActions(actions =>
+            {
+                actions.BindFrontArm("front_arm", "front_hand");
+                actions.BindBackArm("back_arm", "back_hand");
+                // 主动技能期间由技能代码控制骨骼姿势，避免原版手臂姿势覆盖。
+                actions.PoseFilter = _ => !IsSkillPoseActive;
+            });
+        }
+    }
 
     /// <summary>加载资源</summary>
     protected override SpineAsset LoadAnimationAsset()
         => SpineAsset.Load(Mod, "Assets/mokou.json", "Assets/mokou.atlas");
 
-    /// <summary>按水平移动速度选择动作；动画推进和绘制交给角色库。</summary>
+    /// <summary>选择地面/空中姿势，再让原版持物手臂和技能接管对应部位。</summary>
     protected override void UpdateAnimation()
     {
         if (Main.dedServ || Player.dead) return;
 
         Animator.FlipX = Player.direction < 0;
-        // 冲刺全身姿势以站立为基底，避免移动轨道的摆腿叠加到突进动作。
-        MovementMachine.ChangeState(!SacrificeStrikeSkill.IsDashing && Math.Abs(Player.velocity.X) > 0.1f
-            ? MovementState.Move : MovementState.Idle);
+        UpdateLocomotion();
         _ = VanillaActions;
-        UpdateFrontHandFire();
         UpdatePhoenixWings();
     }
 
@@ -149,147 +163,30 @@ public partial class Mokou : CharacterLib
         : PhoenixPossessionSkill.ElapsedTicks / 60f;
     #endregion
     
-    /// <summary>火爪手部火焰开关；普通交替前后手，强化双手同时绘制。</summary>
-    public bool FrontHandFireEnabled { get; set; } = true;
-
-    private bool IsFrontHandFireActive => FrontHandFireEnabled && IsSelected
-        && !Player.dead && !IsNirvana && IsHandSkillActive;
-
-    private SpineBoneDrawHandle handDraw;
-    private SpineBoneDrawHandle backHandDraw;
-    private Asset<Effect> frontHandFireEffect;
-
-    /// <summary>在更新阶段注册一次，实际绘制由骨骼渲染回调执行。</summary>
-    private void UpdateFrontHandFire()
+    public Color fire_lightColor => lockedSkillLightColor ?? GetUnlatchedLightColor(Jintai_Shizen_Hakka_Active);
+    public Color fire_darkColor => lockedSkillDarkColor ?? GetUnlatchedDarkColor(Jintai_Shizen_Hakka_Active);
+    /// <summary>按本次技能的强化结果取色，不读取其他正在脱手生效的技能颜色。</summary>
+    private Color GetUnlatchedLightColor(bool empowered)
     {
-        UpdateClawHandFire(ref handDraw, "front_hand", IsFrontHandFireActive && ClawSkill.FrontHandActive);
-        UpdateClawHandFire(ref backHandDraw, "back_hand", IsFrontHandFireActive && ClawSkill.BackHandActive);
+        if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
+            return empowered ? new Color(130, 200, 255) : Color.LightGreen;
+        if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
+            return empowered ? new Color(204, 204, 255) : Color.BlueViolet;
+        return empowered ? Color.GhostWhite : new Color(255, 184, 51);
     }
 
-    private void UpdateClawHandFire(ref SpineBoneDrawHandle handle, string bone, bool active)
+    private Color GetUnlatchedDarkColor(bool empowered)
     {
-        if (!active)
-        {
-            handle?.Dispose();
-            handle = null;
-            return;
-        }
-
-        if (handle == null || handle.IsDisposed)
-        {
-            handle = RegisterBoneDraw(
-                bone, BoneDrawOrder.OverBone,
-                new Vector2(100f, 0f), // 沿前手骨骼接近末端的位置，随动画和镜像变化。
-                DrawFrontHandFire, drawRadius: 48f);
-        }
-    }
-
-    public Color fire_lightColor
-    {
-        get
-        {
-            if (lockedSkillLightColor.HasValue) return lockedSkillLightColor.Value;
-            //开启人体自燃后颜色修改
-            if (Jintai_Shizen_Hakka_Active)
-            {
-                if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
-                {
-                    return new Color(130, 200, 255);
-                }
-                else if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
-                {
-                    return new Color(204, 204, 255);
-                }
-                else
-                {
-                    return Color.GhostWhite;
-                }
-            }
-            if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
-            {
-                return Color.LightGreen;
-            }
-            else if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
-            {
-                return Color.BlueViolet;
-            }
-            else
-            {
-                return new Color(255, 184, 51);
-            }
-        }
-    }
-    public Color fire_darkColor
-    {
-        get
-        {
-            if (lockedSkillDarkColor.HasValue) return lockedSkillDarkColor.Value;
-            //开启人体自燃后颜色修改
-            if (Jintai_Shizen_Hakka_Active)
-            {
-                if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
-                {
-                    return new Color(64, 224, 208);
-                }
-                else if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
-                {
-                    return new Color(111, 0, 255);
-                }
-                else
-                {
-                    return Color.DodgerBlue;
-                }
-            }
-            if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
-            {
-                return Color.Green;
-            }
-            else if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
-            {
-                return Color.Purple;
-            }
-            else
-            {
-                return new Color(166, 15, 3);
-            }
-        }
-    }
-
-    /// <summary>火焰根部对准前手，向上燃烧；使用回调坐标，兼容角色像素 RT。</summary>
-    private void DrawFrontHandFire(SpineBoneDrawContext ctx)
-    {
-        if (!IsFrontHandFireActive) return;
-
-        frontHandFireEffect ??= ModContent.Request<Effect>(
-            "Mokou_Character/Assets/Effects/FireFlame", AssetRequestMode.ImmediateLoad);
-        Effect effect = frontHandFireEffect.Value;
-        effect.Parameters["uTime"].SetValue((float)Main.GlobalTimeWrappedHourly);
-        effect.Parameters["uDarkColor"].SetValue(fire_darkColor.ToVector3());
-        effect.Parameters["uLightColor"].SetValue(fire_lightColor.ToVector3());
-        effect.Parameters["uDirection"].SetValue(new Vector2(0f, -1f));
-
-        Vector2 size = new Vector2(32f, 40f); // 火焰绘制区域，单位为游戏像素。
-        Texture2D pixel = TextureAssets.MagicPixel.Value;
-        Vector2 textureSize = new Vector2(pixel.Width, pixel.Height);
-        // FireFlame 中向上燃烧时，height=0 对应 UV=(0.5,0.92)。
-        Vector2 origin = new Vector2(0.5f, 0.92f) * textureSize;
-        SpriteBatch sb = ctx.SpriteBatch;
-        sb.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend,
-            SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone,
-            effect, ctx.TransformMatrix);
-        try
-        {
-            sb.Draw(pixel, ctx.Position, null, Color.White, 0f, origin,
-                size / textureSize, SpriteEffects.None, 0f);
-        }
-        finally
-        {
-            sb.End();
-        }
+        if (Player.HasBuff(BuffID.WeaponImbueCursedFlames))
+            return empowered ? new Color(64, 224, 208) : Color.Green;
+        if (Player.HasBuff(ModContent.BuffType<WeaponImbueShadowFlame>()))
+            return empowered ? new Color(111, 0, 255) : Color.Purple;
+        return empowered ? Color.DodgerBlue : new Color(166, 15, 3);
     }
 
     public override void DrawCharacter(GraphicsDevice graphicsDevice)
     {
+        if (DrawResurrectionBody(graphicsDevice)) return;
         if ((!IsNirvana && !IsPhoenixChanting) || Main.dedServ || Player.dead)
         {
             base.DrawCharacter(graphicsDevice);
@@ -421,10 +318,9 @@ public partial class Mokou : CharacterLib
             Player.statLife = 1;
             return false;
         }
-        if (IsSelected && (KillCD == 0 || sacrificeRebirthPending))
+        if (IsSelected && KillCD == 0)
         {
             NPCIndex = damageSource.SourceNPCIndex;
-            KillCD = 3600;
             Player.statLife = 1;
             //涅槃期间无敌
             
@@ -502,7 +398,7 @@ public partial class Mokou : CharacterLib
 
         #region 涅槃所需
         //防止后面和别的冲突
-        if (IsNirvana || IsPhoenixChanting)
+        if (IsNirvana || IsPhoenixChanting || IsResurrecting)
         {
             Player.controlLeft = false;
             Player.controlRight = false;
@@ -511,6 +407,11 @@ public partial class Mokou : CharacterLib
             Player.controlJump = false;
             Player.controlUseItem = false; 
             Player.controlUseTile = false; 
+        }
+        if (IsResurrecting)
+        {
+            Player.controlHook = false;
+            Player.controlMount = false;
         }
         #endregion
     }
@@ -521,10 +422,11 @@ public partial class Mokou : CharacterLib
     /// </summary>
     public void StartNirvana()
     {
-        if (!IsSelected || IsNirvana)
+        if (!IsSelected || IsNirvana || KillCD > 0)
             return;
 
-        // 先标记已在重生，避免舍身技能的中断回调再次触发死亡与重生。
+        // 所有重生入口共用 5 分钟冷却；先占用冷却，再中断技能，防止回调重复触发。
+        KillCD = Nirvana.CooldownTicks;
         nirvanaTimeLeft = NirvanaDuration;
         nirvanaPosition = Player.position;
         foreach (var skill in Skills) skill.End(interrupted: true);
@@ -540,7 +442,7 @@ public class Mokou_DamageModify_Projectile : GlobalProjectile
 {
     public override void ModifyHitPlayer(Projectile projectile, Player target, ref Player.HurtModifiers modifiers)
     {
-        if (target.GetModPlayer<Mokou>().IsSelected)
+        if (!target.GetModPlayer<Mokou>().IsSelected)
             return;
         int maxDamage = Math.Max(
             1, (int)(target.statLifeMax2 * 0.3f));
@@ -553,7 +455,7 @@ public class Mokou_DamageModify_NPC : GlobalNPC
 {
     public override void ModifyHitPlayer(NPC npc, Player target, ref Player.HurtModifiers modifiers)
     {
-        if (target.GetModPlayer<Mokou>().IsSelected)
+        if (!target.GetModPlayer<Mokou>().IsSelected)
             return;
         int maxDamage = Math.Max(
             1, (int)(target.statLifeMax2 * 0.3f));

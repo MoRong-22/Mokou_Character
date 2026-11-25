@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using CharacterRely.Animation;
 using CharacterRely.Content.SkillSystem;
 using Microsoft.Xna.Framework;
@@ -9,8 +9,8 @@ using Terraria.ModLoader;
 
 namespace Mokou_Character.Skill;
 
-/// <summary>地面蓄力上冲旋踢后再次按键飞踢；空中起手直接使用富士火山，朝鼠标飞踢并落地爆炸。</summary>
-public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSystem.Skill
+/// <summary>地面蓄力上冲旋踢后再次按键飞踢；空中起手直接使用富士火山，朝鼠标飞踢并在落地处喷出火柱。</summary>
+public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSystem.Skill, IMokouActionSkill
 {
     public const string SkillId = "kafuu_kaisey_kick";
     /// <summary>成功释放时立即扣除的生命，必须至少保留 1 点生命。</summary>
@@ -26,9 +26,7 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
     private const int Duration = ChargeTicks + RiseTicks + SpinTicks + FollowUpWindowTicks + DiveTicksLimit
         + MokouKickExplosionProjectile.EmpoweredLifetime + LandingTicks;
 
-    private const int SpinDamage = 32;
-    private const int DiveDamage = 48;
-    private const int LandingDamage = 64;
+    private MokouSkillDamageSnapshot damageSnapshot;
     private const float RiseStartSpeed = -15f;
     private const float RiseEndSpeed = -4.5f;
     private const float DiveSpeed = 18f;
@@ -36,7 +34,7 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
     private static readonly SkillInfo InfoData = new(
         SkillId,
         "凯风快晴踢",
-        "地面释放：蓄力上冲并旋踢一圈，再次按键朝鼠标位置飞踢，旋踢后可滞空等待1.5秒。空中释放：直接使用富士火山，朝当前鼠标位置飞踢。普通落地仅爆炸一次，半径192像素、64点基础伤害。人体自燃强化时，3秒后原落点追加一次半径240像素的爆炸，整套伤害提高50%。成功释放时立即消耗50点生命，至少保留1点生命；整套爆炸结束后结算自燃进度与强化回血。",
+        "地面释放：蓄力上冲并旋踢一圈，再次按键朝鼠标位置飞踢，旋踢后可滞空等待1.5秒。空中释放：直接使用富士火山，朝当前鼠标位置飞踢。落地喷出约两人宽、五人高的火柱，燃烧2秒，两道上升火环表示燃烧进度；落地收势后可释放其他技能。燃烧期间持续命中火柱范围内的敌人，对同一敌人每0.5秒造成一次伤害，基础数值随世界BOSS进度成长，只受魔法与通用伤害加成（通用只计一次）。普通火柱燃尽消散；人体自燃强化时，燃尽后在顶部爆开，造成一次半径64像素的伤害，并向四周射出6枚穿墙飞弹，每枚造成火柱伤害的50%，整套伤害提高50%。成功释放时立即消耗50点生命，至少保留1点生命；火柱和飞弹全部结束后结算自燃进度与强化回血。",
         cooldownTicks: 300,
         durationTicks: Duration,
         maxCount: 1,
@@ -51,17 +49,17 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
     private int diveProjectile = -1;
     private Projectile landingExplosion;
     private int landingExplosionIdentity;
-    private bool isLanding;
+    private bool isLanding, actionReleased;
     private bool previousNoFallDamage;
-    // 第一段起手时锁定，旋踢、第二次按键的飞踢和落地爆炸共用本次强化。
+    // 第一段起手时锁定，旋踢、第二次按键的飞踢和落地火柱共用本次强化。
     private bool empoweredCast;
     private bool diveRequested, reachedDiveTarget;
     // 只在起手时判定，地面技能自行升空后仍继续原本的旋踢流程。
     private bool startedAirborne;
     private Vector2 diveTarget, diveDirection, diveVelocity;
     private float diveBodyRotation;
-    /// <summary>落地收势后可恢复移动；延迟爆炸仍属于本次技能，结束后才结算强化。</summary>
-    public bool IsPerformingAction => IsActive && (!isLanding || landingTicks < LandingTicks);
+    /// <summary>落地收势后可恢复移动；火柱及其飞弹仍属于本次技能，全部结束后才结算强化。</summary>
+    public bool IsPerformingAction => IsActive && !actionReleased;
 
     private bool ExplosionActive => landingExplosion != null && landingExplosion.active
         && landingExplosion.identity == landingExplosionIdentity && landingExplosion.owner == Player.whoAmI
@@ -77,15 +75,16 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
             && Owner is Mokou character && character.CanSpendSkillLife(LifeCost)
             && !character.IsNirvana
             && !character.IsPhoenixChanting
-            && !character.ClawSkill.IsActive && !character.SacrificeStrikeSkill.IsActive;
+            && !character.HasBlockingSkillAction(this);
 
     protected override bool OnUse()
-        => ((Mokou)Owner).TryUseSkillWithLifeCost(LifeCost, BeginCast);
+        => ((Mokou)Owner).TryUseSkillWithLifeCost(this, LifeCost, BeginCast);
 
     private bool BeginCast(bool empowered)
     {
         var character = (Mokou)Owner;
         empoweredCast = empowered;
+        damageSnapshot = MokouSkillBalance.Capture(Player, empowered);
         animator = character.Animator;
         if (animator == null || animator.IsDisposed) return false;
         startedAirborne = !IsGrounded();
@@ -96,7 +95,7 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
 
         diveTicks = 0;
         landingTicks = 0;
-        isLanding = false;
+        isLanding = actionReleased = false;
         diveRequested = reachedDiveTarget = false;
         diveTarget = diveDirection = diveVelocity = Vector2.Zero;
         diveBodyRotation = 0f;
@@ -141,9 +140,9 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
                 Player.velocity = Vector2.Zero;
                 Player.noFallDmg = true;
                 ApplyLandingPose(landingTicks / (float)LandingTicks);
-                if (landingTicks == LandingTicks) Player.noFallDmg = previousNoFallDamage;
+                if (landingTicks == LandingTicks) ReleaseAction();
             }
-            // 不重复写速度和骨骼，允许自由移动；普通等一爆、强化等二爆消散结束。
+            // 不重复写速度和骨骼，允许自由移动；等本次火柱和飞弹全部结束再结算。
             if (landingTicks >= LandingTicks && !ExplosionActive) End();
             return;
         }
@@ -179,7 +178,7 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
         if (spinTick <= SpinTicks)
         {
             if (spinTick == 1)
-                spinProjectile = SpawnHitbox(0f, SpinDamage, SpinTicks);
+                spinProjectile = SpawnHitbox(0f, damageSnapshot.Base.Spin, SpinTicks);
 
             float progress = (spinTick - 1) / (float)(SpinTicks - 1);
             Player.velocity = Vector2.Zero;
@@ -221,7 +220,7 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
 
         diveTicks++;
         if (diveTicks == 1)
-            diveProjectile = SpawnHitbox(1f, DiveDamage, DiveTicksLimit);
+            diveProjectile = SpawnHitbox(1f, damageSnapshot.Base.Dive, DiveTicksLimit);
 
         float diveProgress = MathHelper.Clamp(diveTicks / 36f, 0f, 1f);
         diveVelocity = reachedDiveTarget
@@ -295,11 +294,11 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
         if (Player.whoAmI == Main.myPlayer)
         {
             int index = Projectile.NewProjectile(
-                Player.GetSource_Misc("CharacterSkill:" + Id),
+                Player.GetSource_FromThis("CharacterSkill:" + Id),
                 Player.Bottom,
                 Vector2.Zero,
                 ModContent.ProjectileType<MokouKickExplosionProjectile>(),
-                Mokou.GetEmpoweredSkillDamage(LandingDamage, empoweredCast),
+                damageSnapshot.Resolve(damageSnapshot.Base.Pillar),
                 7f,
                 Player.whoAmI, 0f, empoweredCast ? 1f : 0f);
             landingExplosion = (uint)index < Main.maxProjectiles ? Main.projectile[index] : null;
@@ -312,11 +311,11 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
         if (Player.whoAmI != Main.myPlayer) return -1;
 
         return Projectile.NewProjectile(
-            Player.GetSource_Misc("CharacterSkill:" + Id),
+            Player.GetSource_FromThis("CharacterSkill:" + Id),
             Player.Center,
             phase == 1f ? diveDirection * DiveSpeed : Vector2.Zero,
             ModContent.ProjectileType<MokouKafuuKaiseyKickProjectile>(),
-            Mokou.GetEmpoweredSkillDamage(damage, empoweredCast),
+            damageSnapshot.Resolve(damage),
             5f,
             Player.whoAmI,
             phase,
@@ -422,14 +421,11 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
         index = -1;
     }
 
-    protected override void OnEnd(bool interrupted)
+    /// <summary>落地收势结束就释放骨骼和免摔状态；火柱最终结束不再碰新技能的动作。</summary>
+    private void ReleaseAction()
     {
-        if (interrupted && ExplosionActive) landingExplosion.Kill();
-        landingExplosion = null;
-        empoweredCast = false;
-        KillHitbox(ref spinProjectile);
-        KillHitbox(ref diveProjectile);
-        diveRequested = reachedDiveTarget = startedAirborne = false;
+        if (actionReleased) return;
+        actionReleased = true;
         Player.noFallDmg = previousNoFallDamage;
 
         if (animator != null && !animator.IsDisposed)
@@ -444,7 +440,18 @@ public sealed class MokouKafuuKaiseyKickSkill : CharacterRely.Content.SkillSyste
             SetBone("back_leg_1", 0f);
             SetBone("back_leg_2", 0f);
         }
+    }
+
+    protected override void OnEnd(bool interrupted)
+    {
+        if (interrupted && ExplosionActive) landingExplosion.Kill();
+        landingExplosion = null;
+        empoweredCast = false;
+        KillHitbox(ref spinProjectile);
+        KillHitbox(ref diveProjectile);
+        diveRequested = reachedDiveTarget = startedAirborne = false;
+        ReleaseAction();
         animator = null;
-        ((Mokou)Owner).CompleteSkillLifeUse();
+        ((Mokou)Owner).CompleteSkillLifeUse(this);
     }
 }

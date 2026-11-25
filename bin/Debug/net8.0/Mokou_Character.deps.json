@@ -7,6 +7,9 @@
   "targets": {
     ".NETCoreApp,Version=v8.0": {
       "Mokou_Character/1.0.0": {
+        "dependencies": {
+          "CharacterRely": "1.0.0"
+        },
         "runtime": {
           "Mokou_Character.dll": {}
         }
